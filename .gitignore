@@ -1,0 +1,8 @@
+.vs
+assets
+imgui.ini
+out
+release*
+debug*
+build
+CMakeSettings.json

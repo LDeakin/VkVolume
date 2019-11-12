@@ -1,0 +1,101 @@
+#version 460
+/* Copyright (c) 2019, Lachlan Deakin
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 the "License";
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout (set = 0, binding = 0, r8) uniform image3D volume; // r8 = float unorm
+#ifdef PRECOMPUTED_GRADIENT
+layout (set = 0, binding = 1, r8) uniform image3D gradient;
+#endif
+#ifdef TRANSFER_FUNCTION_TEXTURE
+layout (set = 0, binding = 2) uniform sampler2D transfer_function;  // transfer function (rgba)
+#endif
+layout (set = 0, binding = 3, r8ui) uniform uimage3D occupancy_map;
+
+layout(push_constant) uniform PushConsts {
+    vec4 block_size;
+    float grad_magnitude_modifier;
+#ifndef TRANSFER_FUNCTION_TEXTURE
+    float intensity_min;
+    float intensity_max;
+    float gradient_min;
+    float gradient_max;
+#endif
+};
+
+const uint OCCUPIED = 0;
+const uint EMPTY = 1;
+
+void main() {
+  const ivec3 dimDst = imageSize(occupancy_map);
+  if(any(greaterThanEqual(gl_GlobalInvocationID, dimDst))) return;
+
+  const ivec3 dimSrc = imageSize(volume);
+
+  const ivec3 start = ivec3(gl_GlobalInvocationID * block_size.xyz);
+  ivec3 end = ivec3(min(dimSrc, start + block_size.xyz));
+  end.x = (dimSrc.x - end.x) < block_size.x ? dimSrc.x : end.x;
+  end.y = (dimSrc.y - end.y) < block_size.y ? dimSrc.y : end.y;
+  end.z = (dimSrc.z - end.z) < block_size.z ? dimSrc.z : end.z;
+  
+#ifndef TRANSFER_FUNCTION_TEXTURE
+  float intensity_range_inv = 1.0f / (intensity_max - intensity_min); 
+  float gradient_range_inv = 1.0f / (gradient_max - gradient_min);
+#endif
+
+  ivec3 pos;
+  for (pos.z = start.z; pos.z < end.z; ++pos.z)
+    for (pos.y = start.y; pos.y < end.y; ++pos.y)
+      for (pos.x = start.x; pos.x < end.x; ++pos.x) {
+        // Intensity
+        float intensity = imageLoad(volume, pos).x;
+
+#ifdef PRECOMPUTED_GRADIENT
+        // Gradient from precomputed texture
+        float gradient = imageLoad(gradient, pos).x;
+#else
+        // Gradient on-the-fly using tetrahedron technique http://iquilezles.org/www/articles/normalsSDF/normalsSDF.htm
+        ivec2 k = ivec2(1,-1);
+        vec3 gradientDir = (k.xyy * imageLoad(volume, clamp(pos + k.xyy, ivec3(0), ivec3(dimSrc)-1)).x +
+                            k.yyx * imageLoad(volume, clamp(pos + k.yyx, ivec3(0), ivec3(dimSrc)-1)).x +
+                            k.yxy * imageLoad(volume, clamp(pos + k.yxy, ivec3(0), ivec3(dimSrc)-1)).x +
+                            k.xxx * imageLoad(volume, clamp(pos + k.xxx, ivec3(0), ivec3(dimSrc)-1)).x) * 0.25f;
+        float gradient = clamp(length(gradientDir) * grad_magnitude_modifier, 0, 1);
+#endif
+
+#ifdef TRANSFER_FUNCTION_TEXTURE
+        // Get alpha from transfer function texture
+        float alpha = textureLod(transfer_function, vec2(intensity, gradient), 0.0f).a;
+
+#else
+        // Get alpha from simple grayscale transfer function
+        float alphaIntensity = clamp((intensity - intensity_min) * intensity_range_inv, 0, 1);
+        float alphaGradient= clamp((gradient - gradient_min) * gradient_range_inv, 0, 1);
+        float alpha = alphaIntensity * alphaGradient;
+#endif
+
+        if (alpha > 0.0f) {
+          // Set region as occupied
+          imageStore(occupancy_map, ivec3(gl_GlobalInvocationID), ivec4(OCCUPIED));
+          return;
+        }
+      }
+
+  // Set region as empty
+  imageStore(occupancy_map, ivec3(gl_GlobalInvocationID), ivec4(EMPTY));
+}
