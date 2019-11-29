@@ -1,0 +1,27 @@
+#version 460
+
+#extension GL_ARB_separate_shader_objects : enable
+#extension GL_ARB_shading_language_420pack : enable
+#extension GL_ARB_gpu_shader_int64: enable
+#extension GL_KHR_shader_subgroup_basic: enable
+#extension GL_KHR_shader_subgroup_arithmetic: enable
+
+layout (local_size_x = SUBGROUP_SIZE) in;
+
+layout (set = 0, binding = 0, std430) buffer data
+{
+    uint64_t count[];
+};
+
+layout(push_constant) uniform PushConsts {
+    uint64_t bufferSize;
+    uint stride;
+};
+
+void main() {
+    const uint sampleIdx = gl_GlobalInvocationID.x * stride;
+    const uint64_t sum = uint64_t(subgroupAdd(sampleIdx < bufferSize ? count[sampleIdx] : 0));
+    if (subgroupElect()) {
+      count[sampleIdx] = sum;
+    }
+}

@@ -28,23 +28,19 @@ class RenderContext;
 class CommandBuffer;
 }        // namespace vkb
 
-class ComputeDistanceMap
+class ComputeGradientMap
 {
   public:
-	ComputeDistanceMap(vkb::RenderContext &render_context);
+	ComputeGradientMap(vkb::RenderContext &render_context);
 
-	virtual ~ComputeDistanceMap() = default;
+	virtual ~ComputeGradientMap() = default;
 
-	void compute(vkb::CommandBuffer &command_buffer, Volume &volume, vkb::BufferAllocation &transfer_function_uniform, VolumeRenderSubpass::SkippingType skipping_type);
+	void compute(vkb::CommandBuffer &command_buffer, Volume &volume, vkb::BufferAllocation &transfer_function_uniform);
 
   private:
-	void computeOccupancy(vkb::CommandBuffer &command_buffer, const Volume &volume, const Volume::Image &occupancy_map, vkb::BufferAllocation &transfer_function_uniform);
-	void computeDistance(vkb::CommandBuffer &command_buffer, const Volume &volume);
-	void computeDistanceAnisotropic(vkb::CommandBuffer &command_buffer, const Volume &volume);
-
 	vkb::RenderContext &render_context;
 
-	vkb::ShaderSource compute_shader_occupancy, compute_shader_distance, compute_shader_distance_anisotropic;
+	vkb::ShaderSource compute_shader;
 
 	vkb::ImageMemoryBarrier memory_barrier_to_compute{};
 	vkb::ImageMemoryBarrier memory_barrier_write_to_read{};

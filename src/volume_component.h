@@ -26,6 +26,8 @@
 #include "scene_graph/component.h"
 #include "scene_graph/node.h"
 
+#include "transfer_function.h"
+
 class Volume : public vkb::sg::Component
 {
   public:
@@ -36,14 +38,17 @@ class Volume : public vkb::sg::Component
 
 	void set_image_transform(const glm::mat4 &mat);
 
+	void set_number_of_distance_maps(vkb::RenderContext &render_context, size_t n);
+
 	virtual std::type_index get_type() override;
 
 	struct Options
 	{
-		float sampling_factor    = 1.0f;
-		float voxel_alpha_factor = 1.0f;
+		float sampling_factor          = 1.0f;
+		float voxel_alpha_factor       = 1.0f;
+		bool  use_precomputed_gradient = true;
 
-		// NOTE: Temporary parameters for a simple grayscale 2D transfer function (in place of texture-based lookup)
+		// Parameters defining simple grayscale 2D transfer function
 		float intensity_min = 0.0f;
 		float intensity_max = 1.0f;
 		float gradient_min  = 0.0f;
@@ -57,23 +62,32 @@ class Volume : public vkb::sg::Component
 		std::unique_ptr<vkb::core::Sampler>   sampler;
 	};
 
-	const Image &get_volume();
-	//const Image &get_gradient();
-	//const Image &get_transfer_function();
-	const Image &get_distance_map();
-	const Image &get_distance_map_swap();
+	const Image &get_volume() const;
+	const Image &get_gradient() const;
+	const Image &get_transfer_function() const;
+	const Image &get_distance_map(size_t idx = 0) const;
+	const Image &get_distance_map_swap() const;
 
 	glm::mat4 &get_image_transform();
+
+	TransferFunctionUniform get_transfer_function_uniform();
+
+	void update_transfer_function_texture(vkb::CommandBuffer &command_buffer);
 
 	void           set_node(vkb::sg::Node &node);
 	vkb::sg::Node *get_node() const;
 
+	void upload_texture_with_staging(vkb::CommandBuffer &    command_buffer,
+	                                 vkb::core::Buffer &     stage_buffer,
+	                                 const vkb::core::Image &image, const vkb::core::ImageView &image_view);
+
   private:
 	vkb::sg::Node *node;
 
-	Image volume, distance_map, distance_map_swap;
+	Image                              volume, gradient, transfer_function;
+	std::unique_ptr<vkb::core::Buffer> transfer_function_staging;
+	std::vector<Image>                 distance_maps;
+	Image                              distance_map_swap;
 
 	glm::mat4 image_transform;
-
-	vkb::core::Buffer upload_texture_with_staging(vkb::CommandBuffer &command_buffer, const uint8_t *data, VkDeviceSize data_size, const vkb::core::Image &image, const vkb::core::ImageView &image_view);
 };

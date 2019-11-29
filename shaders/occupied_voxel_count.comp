@@ -1,0 +1,56 @@
+#version 460
+
+#extension GL_GOOGLE_include_directive : enable
+#extension GL_ARB_gpu_shader_int64: enable
+#extension GL_KHR_shader_subgroup_basic: enable
+#extension GL_KHR_shader_subgroup_arithmetic: enable
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout (set = 0, binding = 0, r8) uniform image3D volume; // r8 = float unorm
+
+#define TRANSFER_FUNCTION_SET 0
+#define TRANSFER_FUNCTION_BINDING_UNIFORM 1
+// #define TRANSFER_FUNCTION_BINDING_TEXTURE 2
+#include "transfer_function.glsl"
+
+#ifdef PRECOMPUTED_GRADIENT
+#define GRADIENT_MAP_SET 0
+#define GRADIENT_MAP_BINDING 3
+#endif
+#include "get_gradient_compute.glsl"
+
+layout (set = 0, binding = 4, std430) buffer countBuffer
+{
+    uint64_t count[];
+};
+
+void main() {
+  const ivec3 dim = imageSize(volume);
+  
+  // Get the opacity
+  float alpha;
+  if(any(greaterThanEqual(gl_GlobalInvocationID, dim))) {
+    alpha = 0.0f;
+  } else {
+    ivec3 pos = ivec3(gl_GlobalInvocationID);
+    float intensity = imageLoad(volume, pos).x;
+    float gradient = get_gradient(pos, dim - 1);
+    alpha = get_color(intensity, gradient).a;
+  }
+
+  // Sum the number of non-empty voxels in the current subgroup
+  const uint sum_subgroup = subgroupAdd(alpha > 0.0f ? 1 : 0);
+
+  if (subgroupElect()) {
+    // Work group index (1D)
+    const uint wIdx =
+      gl_WorkGroupID.z * gl_NumWorkGroups.y * gl_NumWorkGroups.x +
+      gl_WorkGroupID.y * gl_NumWorkGroups.x +
+      gl_WorkGroupID.x;
+
+    // Sub group index among all invocations
+    const uint subgroupIdx = wIdx * gl_NumSubgroups + gl_SubgroupID;
+    count[subgroupIdx] = uint64_t(sum_subgroup);
+  }
+}

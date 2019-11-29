@@ -20,6 +20,8 @@ cmake_minimum_required(VERSION 3.10)
 project(vulkan_samples_volume_renderer)
 
 set(VULKAN_SAMPLES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Vulkan-samples)
+string(LENGTH "${CMAKE_SOURCE_DIR}/" ROOT_PATH_SIZE)
+add_definitions(-DROOT_PATH_SIZE=${ROOT_PATH_SIZE})
 
 # Add vulkan framework
 set(VKB_VALIDATION_LAYERS OFF CACHE BOOL "Enable validation layers.")
@@ -35,7 +37,6 @@ macro(vulkan_samples_pch SRCS PCHCPP)
 endmacro(vulkan_samples_pch)
 add_subdirectory(${VULKAN_SAMPLES}/third_party)
 add_subdirectory(${VULKAN_SAMPLES}/framework)
-
 
 # Add source
 add_subdirectory(src)

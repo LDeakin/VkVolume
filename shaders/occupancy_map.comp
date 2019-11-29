@@ -16,79 +16,51 @@
  * limitations under the License.
  */
 
+#extension GL_GOOGLE_include_directive : enable
+
 layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 layout (set = 0, binding = 0, r8) uniform image3D volume; // r8 = float unorm
+
+#define TRANSFER_FUNCTION_SET 0
+#define TRANSFER_FUNCTION_BINDING_UNIFORM 1
+#define TRANSFER_FUNCTION_BINDING_TEXTURE 2
+#include "transfer_function.glsl"
+
 #ifdef PRECOMPUTED_GRADIENT
-layout (set = 0, binding = 1, r8) uniform image3D gradient;
+#define GRADIENT_MAP_SET 0
+#define GRADIENT_MAP_BINDING 3
 #endif
-#ifdef TRANSFER_FUNCTION_TEXTURE
-layout (set = 0, binding = 2) uniform sampler2D transfer_function;  // transfer function (rgba)
-#endif
-layout (set = 0, binding = 3, r8ui) uniform uimage3D occupancy_map;
+#include "get_gradient_compute.glsl"
+
+layout (set = 0, binding = 4, r8ui) uniform uimage3D occupancy_map;
 
 layout(push_constant) uniform PushConsts {
-    vec4 block_size;
-    float grad_magnitude_modifier;
-#ifndef TRANSFER_FUNCTION_TEXTURE
-    float intensity_min;
-    float intensity_max;
-    float gradient_min;
-    float gradient_max;
-#endif
+    ivec4 block_size;
 };
 
 const uint OCCUPIED = 0;
-const uint EMPTY = 1;
+const uint EMPTY = 255;
 
 void main() {
-  const ivec3 dimDst = imageSize(occupancy_map);
-  if(any(greaterThanEqual(gl_GlobalInvocationID, dimDst))) return;
+  const ivec3 dim_occ = imageSize(occupancy_map);
+  if(any(greaterThanEqual(gl_GlobalInvocationID, dim_occ))) return;
 
-  const ivec3 dimSrc = imageSize(volume);
+  ivec3 dim_vol = imageSize(volume);
 
-  const ivec3 start = ivec3(gl_GlobalInvocationID * block_size.xyz);
-  ivec3 end = ivec3(min(dimSrc, start + block_size.xyz));
-  end.x = (dimSrc.x - end.x) < block_size.x ? dimSrc.x : end.x;
-  end.y = (dimSrc.y - end.y) < block_size.y ? dimSrc.y : end.y;
-  end.z = (dimSrc.z - end.z) < block_size.z ? dimSrc.z : end.z;
+  // Get block extents
+  ivec3 start = ivec3(gl_GlobalInvocationID * block_size.xyz);
+  ivec3 end = min(start + block_size.xyz, dim_vol);
   
-#ifndef TRANSFER_FUNCTION_TEXTURE
-  float intensity_range_inv = 1.0f / (intensity_max - intensity_min); 
-  float gradient_range_inv = 1.0f / (gradient_max - gradient_min);
-#endif
+  ivec3 dim_vol1 = imageSize(volume) - 1;
 
   ivec3 pos;
   for (pos.z = start.z; pos.z < end.z; ++pos.z)
     for (pos.y = start.y; pos.y < end.y; ++pos.y)
       for (pos.x = start.x; pos.x < end.x; ++pos.x) {
-        // Intensity
         float intensity = imageLoad(volume, pos).x;
-
-#ifdef PRECOMPUTED_GRADIENT
-        // Gradient from precomputed texture
-        float gradient = imageLoad(gradient, pos).x;
-#else
-        // Gradient on-the-fly using tetrahedron technique http://iquilezles.org/www/articles/normalsSDF/normalsSDF.htm
-        ivec2 k = ivec2(1,-1);
-        vec3 gradientDir = (k.xyy * imageLoad(volume, clamp(pos + k.xyy, ivec3(0), ivec3(dimSrc)-1)).x +
-                            k.yyx * imageLoad(volume, clamp(pos + k.yyx, ivec3(0), ivec3(dimSrc)-1)).x +
-                            k.yxy * imageLoad(volume, clamp(pos + k.yxy, ivec3(0), ivec3(dimSrc)-1)).x +
-                            k.xxx * imageLoad(volume, clamp(pos + k.xxx, ivec3(0), ivec3(dimSrc)-1)).x) * 0.25f;
-        float gradient = clamp(length(gradientDir) * grad_magnitude_modifier, 0, 1);
-#endif
-
-#ifdef TRANSFER_FUNCTION_TEXTURE
-        // Get alpha from transfer function texture
-        float alpha = textureLod(transfer_function, vec2(intensity, gradient), 0.0f).a;
-
-#else
-        // Get alpha from simple grayscale transfer function
-        float alphaIntensity = clamp((intensity - intensity_min) * intensity_range_inv, 0, 1);
-        float alphaGradient= clamp((gradient - gradient_min) * gradient_range_inv, 0, 1);
-        float alpha = alphaIntensity * alphaGradient;
-#endif
-
+        float gradient = get_gradient(pos, dim_vol1);
+        float alpha = get_color(intensity, gradient).a;
         if (alpha > 0.0f) {
           // Set region as occupied
           imageStore(occupancy_map, ivec3(gl_GlobalInvocationID), ivec4(OCCUPIED));

@@ -22,21 +22,21 @@ precision highp float;
 
 layout(location = 0) in vec3 position;
 
-layout(set = 0, binding = 1, std140) uniform VolumeRenderUniform {
-    mat4 model;
-    mat4 model_inv;
+layout(set = 0, binding = 1) uniform CameraUniform {
     mat4 view;
     mat4 proj;
     mat4 view_proj_inv;
+    mat4 model;
+    mat4 model_inv;
+} camera_uniform;
+
+layout(set = 0, binding = 2) uniform RayCastUniform {
     vec4 plane;
     vec4 plane_tex;
     vec4 cam_pos_tex;
+    vec4 block_size;
     int front_index;
-    float sampling_factor;
-    float voxel_alpha_factor;
-    float value_min;
-    float value_max;
-} volume_uniform;
+} ray_cast_uniform;
 
 layout(location = 0) out vec4 pos_view_space;
 layout(location = 1) out vec3 ray_entry;
@@ -50,13 +50,13 @@ out gl_PerVertex
 void main()
 {
     // Convert to world space
-    vec4 position_world = volume_uniform.model * vec4(position, 1.0f);
+    vec4 position_world = camera_uniform.model * vec4(position, 1.0f);
 
     // Distance to clip plane
-    gl_ClipDistance[0] = dot(volume_uniform.plane, position_world);
+    gl_ClipDistance[0] = dot(ray_cast_uniform.plane, position_world);
     
-    pos_view_space = volume_uniform.view * position_world;
+    pos_view_space = camera_uniform.view * position_world;
     ray_entry = position + 0.5f;
-    gl_Position = volume_uniform.proj * pos_view_space;
+    gl_Position = camera_uniform.proj * pos_view_space;
 
 }

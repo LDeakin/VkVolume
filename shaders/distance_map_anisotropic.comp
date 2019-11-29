@@ -1,0 +1,92 @@
+#version 460
+/* Copyright (c) 2019, Lachlan Deakin
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 the "License";
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+layout (local_size_x = 8, local_size_y = 8) in;
+
+layout (binding = 0, r8ui) uniform uimage3D dist;
+layout (binding = 1, r8ui) uniform uimage3D dist_swap; // occupancy_map on stage 0
+
+layout(push_constant, std430) uniform PushConsts {
+    uint stage;
+    int dir;
+};
+
+// Adapted from distance_map.comp, see there for more information
+
+void main() {
+    ivec3 pos;
+    if (stage == 0) {
+      pos = ivec3(0, gl_GlobalInvocationID.x, gl_GlobalInvocationID.y);
+    } else if (stage == 1) {
+      pos = ivec3(gl_GlobalInvocationID.x, 0, gl_GlobalInvocationID.y);
+    } else {
+      pos = ivec3(gl_GlobalInvocationID.x, gl_GlobalInvocationID.y, 0);
+    }
+
+    const ivec3 dim = imageSize(dist);
+    if(any(greaterThanEqual(pos, dim))) return;
+
+    if (stage == 0) { // "Transformation 1"
+        int start = dir > 0 ? dim.x - 1 : 0;
+        int end = dir > 0 ? -1 : dim.x;
+        pos.x = start.x;
+        uint gi1jk = imageLoad(dist_swap, pos).x;
+        for (pos.x = start; pos.x != end; pos.x -= dir) {
+          uint gijk = min(gi1jk + 1, imageLoad(dist_swap, pos).x);
+          imageStore(dist, pos, uvec4(gijk));
+          gi1jk = gijk;
+        }
+
+    } else if (stage == 1) { // "Transformation 2"
+        for (int y = 0; y < dim.y; ++y) {
+          ivec3 p = ivec3(pos.x, y, pos.z);
+          uint gijk = imageLoad(dist, p).x;
+          uint m_min = gijk;
+          for (int n = 1; n < m_min && n < 255; ++n) {
+            int y_test = y + dir * n;
+            if (y_test < 0 || y_test >= dim.y) {
+              break;
+            } else {
+              const uint gijnk = imageLoad(dist, ivec3(pos.x, y_test, pos.z)).x;
+              const uint m = max(n, gijnk);
+              if (m < m_min)
+                m_min = m;
+            }
+          }
+          imageStore(dist_swap, p, uvec4(m_min));
+        }
+    } else if (stage == 2) { // "Transformation 3"
+      for (int z = 0; z < dim.z; ++z) {
+        ivec3 p = ivec3(pos.x, pos.y, z);
+        uint gijk = imageLoad(dist_swap, p).x;
+        uint m_min = gijk;
+        for (int n = 1; n < m_min && n < 255; ++n) {
+          int z_test = z + dir * n;
+          if (z_test < 0 || z_test >= dim.z) {
+            break;
+          } else {
+            const uint gijnk = imageLoad(dist_swap, ivec3(pos.x, pos.y, z_test)).x;
+            const uint m = max(n, gijnk);
+            if (m < m_min)
+              m_min = m;
+          }
+        }
+        imageStore(dist, p, uvec4(m_min));
+      }
+    }
+}

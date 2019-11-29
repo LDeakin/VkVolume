@@ -1,0 +1,41 @@
+#version 460
+/* Copyright (c) 2019, Lachlan Deakin
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ *
+ * Licensed under the Apache License, Version 2.0 the "License";
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#extension GL_GOOGLE_include_directive : enable
+
+layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+
+layout (set = 0, binding = 0, r8) uniform image3D volume; // r8 = float unorm
+
+#define TRANSFER_FUNCTION_SET 0
+#define TRANSFER_FUNCTION_BINDING_UNIFORM 1
+#define TRANSFER_FUNCTION_BINDING_TEXTURE 2
+#include "transfer_function.glsl"
+
+#define GRADIENT_MAP_SET 0
+#define GRADIENT_MAP_BINDING 3
+#undef PRECOMPUTED_GRADIENT
+#include "get_gradient_compute.glsl"
+
+void main() {
+  const ivec3 dim = imageSize(gradient_map);
+  if(any(greaterThanEqual(gl_GlobalInvocationID, dim))) return;
+
+  float gradient = get_gradient(ivec3(gl_GlobalInvocationID), dim - 1);
+  imageStore(gradient_map, ivec3(gl_GlobalInvocationID), vec4(gradient));
+}

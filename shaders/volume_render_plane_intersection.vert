@@ -18,21 +18,21 @@
 
 precision highp float;
 
-layout(set = 0, binding = 1, std140) uniform VolumeRenderUniform {
-    mat4 model;
-    mat4 model_inv;
+layout(set = 0, binding = 1) uniform CameraUniform {
     mat4 view;
     mat4 proj;
     mat4 view_proj_inv;
+    mat4 model;
+    mat4 model_inv;
+} camera_uniform;
+
+layout(set = 0, binding = 2) uniform RayCastUniform {
     vec4 plane;
     vec4 plane_tex;
     vec4 cam_pos_tex;
+    vec4 block_size;
     int front_index;
-    float sampling_factor;
-    float voxel_alpha_factor;
-    float value_min;
-    float value_max;
-} volume_uniform;
+} ray_cast_uniform;
 
 layout(location = 0) out vec4 pos_view_space;
 layout(location = 1) out vec3 ray_entry;
@@ -100,7 +100,7 @@ int _V[6 * 4 * 2] = int[](
 
 void main()
 {
-    int sequence_index = index_map_standard_to_author[volume_uniform.front_index] * 8;
+    int sequence_index = index_map_standard_to_author[ray_cast_uniform.front_index] * 8;
     vec3 pos_tex = vec3(1.0 / 0.0f); // set to nan by default
     for (int e = 0; e < 4; ++e)
     {
@@ -111,8 +111,8 @@ void main()
         vec3 vecV2 = vec3(cube_vertices[vidx2]);
         vec3 vecDir = vecV2 - vecV1;
 
-        float denom = dot(vecDir, volume_uniform.plane_tex.xyz);
-        float lambda = denom != 0.0f ? (-volume_uniform.plane_tex.w - dot(vecV1, volume_uniform.plane_tex.xyz)) / denom : -1.0;
+        float denom = dot(vecDir, ray_cast_uniform.plane_tex.xyz);
+        float lambda = denom != 0.0f ? (-ray_cast_uniform.plane_tex.w - dot(vecV1, ray_cast_uniform.plane_tex.xyz)) / denom : -1.0;
 
         if (lambda >= 0.0f && lambda <= 1.0f)
         {
@@ -121,7 +121,7 @@ void main()
         }
     }
 
-    pos_view_space = volume_uniform.view * volume_uniform.model * vec4(pos_tex - 0.5f, 1.0f);
+    pos_view_space = camera_uniform.view * camera_uniform.model * vec4(pos_tex - 0.5f, 1.0f);
     ray_entry = pos_tex;
-    gl_Position = volume_uniform.proj * pos_view_space;
+    gl_Position = camera_uniform.proj * pos_view_space;
 }

@@ -1,14 +1,20 @@
 # Accelerated Volume Renderer
-This is an open-source implementation of [Accelerated Volume Rendering with Chebyshev Distance Maps]() to be presented at SIGGRAPH Asia 2019.
+This is an open-source implementation of [Accelerated Volume Rendering with Chebyshev Distance Maps](https://dl.acm.org/citation.cfm?id=3365164).
 Please consider citing this work if you use it:
 ```
-@inproceedings{LachlanDeakinAcceleratedVolumeRendering,
+@inproceedings{DeakinAcceleratedvolumerendering2019,
   address = {{Brisbane, QLD, Australia}},
-  title = {Accelerated {{Volume Rendering}} with {{Chebyshev Distance Maps}}},
-  booktitle = {{{SIGGRAPH Asia}} 2019 {{Technical Briefs}} ({{SA}} '19 {{Technical Briefs}})},
+  series = {{{SA}} '19},
+  title = {Accelerated Volume Rendering with {{Chebyshev}} Distance Maps},
+  isbn = {978-1-4503-6945-9},
+  booktitle = {{{SIGGRAPH Asia}} 2019 {{Technical Briefs}}},
   publisher = {{ACM}},
-  doi = {https://doi.org/10.1145/3355088.3365164},
-  author = {{Lachlan Deakin} and {Mark Knackstedt}}
+  url = {http://doi.acm.org/10.1145/3355088.3365164},
+  doi = {10.1145/3355088.3365164},
+  author = {Deakin, Lachlan and Knackstedt, Mark},
+  year = {2019},
+  keywords = {volume rendering,empty space skipping,distance map,ray casting},
+  pages = {25--28},
 }
 ```
 
@@ -16,15 +22,14 @@ Please consider citing this work if you use it:
 
 ## Features
 * Ray casting volume renderer with efficient empty space skipping
-  * An occupancy map is generated (via compute shader) indicating which regions of the volume are occupied (have non transparent voxels)
-  * The occupancy map is converted into a distance map (via compute shader) indicating the Chebyshev distance to the nearest occupied region
-  * The distance map is sampled in the ray casting fragment shader and used to "leap" rays past empty regions
-  * The occupancy/distance map are updated whenever the transfer function changes
+  * Gradient map precomputed (compute shader)
+  * Simple sliders manipulate 2D Transfer Function (TF) texture
+  * Occupancy map update on TF change used for empty space skipping (compute shader)
+  * Occupancy map to distance map for faster ray casting (comptue shader)
 * The viewpoint may enter the volume
   * The volume is clipped at some distance from the camera and the vertices of the box-plane intersection are computed in a vertex shader
 * Volumes are clipped by the depth buffer
 * Runs in a single subpass with two draw calls per volume
-* ~~2D intensity/gradient transfer functions~~ (partial support, UI not implemented for texture-based)
 
 ## Dependencies
 * [Vulkan-Samples](https://github.com/KhronosGroup/Vulkan-Samples)
@@ -34,7 +39,6 @@ Please consider citing this work if you use it:
 ## Building
 1. `git clone --recurse-submodules <this repository>`
 1. You need boost to assist with IO (for now). I recommend grabbing it through [vcpkg](https://github.com/microsoft/vcpkg) or just use the system package on linux
-1. Apply `vulkan_samples.patch` to the the Vulkan-samples submodule to apply some minor changes to it
 1. The first release includes "assets.zip" which includes the minimum required assets and some volumetric images.
 1. Put any other volumetric images in the newly copied assets folder.
 1. Do a regular cmake build (perhaps using the toolchain file from vcpkg)

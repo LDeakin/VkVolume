@@ -31,6 +31,7 @@ layout(push_constant, std430) uniform PushConsts {
 //      * runs on a GPU, uses a 3D swap image rather than a 1D buffer
 //      * compute Chebyshev distance rather than Euclidean distance
 //      * specific optimisations related to Chebyshev/GPU and sample reduction
+//      * expects occupied regions to have value 255 in occupancy map
 
 // call as:
 //  pushConsts(0)
@@ -39,13 +40,6 @@ layout(push_constant, std430) uniform PushConsts {
 //  dispatch(rndUp(width, 8), rndUp(depth, 8));
 //  pushConsts(2)
 //  dispatch(rndUp(width, 8), rndUp(height, 8));
-
-const uint OCCUPIED = 0;
-const uint EMPTY = 1;
-
-uint occupancy_to_max_dist(uint occupancy) {
-  return occupancy == OCCUPIED ? 0 : 255;
-}
 
 void main() {
     ivec3 pos;
@@ -62,68 +56,54 @@ void main() {
 
     if (stage == 0) { // "Transformation 1"
         // Forward
-        uint gi1jk = occupancy_to_max_dist(imageLoad(dist_swap, ivec3(0, pos.y, pos.z)).x);
-        for (int x = 0; x < dim.x; ++x) {
-          ivec3 p = ivec3(x, pos.y, pos.z);
-          uint gijk = occupancy_to_max_dist(imageLoad(dist_swap, p).x);
-          uint gijk_new = min(gi1jk + 1, gijk);
-          imageStore(dist, p, ivec4(gijk_new));
-          gi1jk = gijk_new;
+        uint gi1jk = imageLoad(dist_swap, pos).x; // occupancy_to_max_dist
+        for (pos.x = 1; pos.x < dim.x; ++pos.x) {
+          uint gijk = min(gi1jk + 1, imageLoad(dist_swap, pos).x); // occupancy_to_max_dist
+          imageStore(dist, pos, uvec4(gijk));
+          gi1jk = gijk;
         }
 
         // Backward
-        gi1jk = imageLoad(dist, ivec3(dim.x - 1, pos.y, pos.z)).x;
-        for (int x = dim.x - 2; x >= 0; --x) {
-          ivec3 p = ivec3(x, pos.y, pos.z);
-          uint gijk = imageLoad(dist, p).x;
-          uint gijk_new = min(gi1jk + 1, gijk);
-          imageStore(dist, p, ivec4(gijk_new));
-          gi1jk = gijk_new;
+        for (pos.x = dim.x - 2; pos.x >= 0; --pos.x) {
+          uint gijk = min(gi1jk + 1, imageLoad(dist, pos).x);
+          imageStore(dist, pos, uvec4(gijk));
+          gi1jk = gijk;
         }
     } else if (stage == 1) { // "Transformation 2"
-        for (int y = 0; y < dim.y; ++y) {
-          ivec3 p = ivec3(pos.x, y, pos.z);
-          uint gijk = imageLoad(dist, p).x;
-          uint m_min = gijk;
-          // zigzag out from the voxel of interest, stop as soon as any future voxels
-          // are guaranteed to return a higher distance
-          for (int n = 1; n < m_min && n < 255; ++n) {
-            if (y >= n) {
-              const uint gijnk = imageLoad(dist, ivec3(pos.x, y - n, pos.z)).x;
-              const uint m = max(n, gijnk);
-              if (m < m_min)
-                m_min = m;
-            }
-            if ((y + n) < dim.y && n < m_min) { // note early exit possible
-              const uint gijnk = imageLoad(dist, ivec3(pos.x, y + n, pos.z)).x;
-              const uint m = max(n, gijnk);
-              if (m < m_min)
-                m_min = m;
-            }
-          }
-          imageStore(dist_swap, p, ivec4(m_min));
-        }
+	      for (pos.y = 0; pos.y < dim.y; ++pos.y) {
+		      uint D = imageLoad(dist, pos).x;
+		
+		      // Zig-zag out from pos in search of minimum D
+		      for (int n = 1; n < D; ++n) {
+			      if (pos.y >= n) {
+				      uint D_n = imageLoad(dist,
+					      ivec3(pos.x, pos.y - n, pos.z)).x;
+				      D = min(D, max(n, D_n));
+			      }
+			      if ((pos.y + n) < dim.y && n < D) { // note early exit
+				      uint D_n = imageLoad(dist,
+					      ivec3(pos.x, pos.y + n, pos.z)).x;
+				      D = min(D, max(n, D_n));
+			      }
+		      }
+		      imageStore(dist_swap, pos, uvec4(D));	
+	      }
     } else if (stage == 2) { // "Transformation 3"
         // same as transformation 2 but on the z axis
-        for (int z = 0; z < dim.z; ++z) {
-          ivec3 p = ivec3(pos.x, pos.y, z);
-          uint gijk = imageLoad(dist_swap, p).x;
+        for (pos.z = 0; pos.z < dim.z; ++pos.z) {
+          uint gijk = imageLoad(dist_swap, pos).x;
           uint m_min = gijk;
-          for (int n = 1; n < m_min && n < 255; ++n) {
-            if (z >= n) {
-              const uint gijnk = imageLoad(dist_swap, ivec3(pos.x, pos.y, z - n)).x;
-              const uint m = max(n, gijnk);
-              if (m < m_min)
-                m_min = m;
+          for (int n = 1; n < m_min; ++n) {
+            if (pos.z >= n) {
+              const uint gijnk = imageLoad(dist_swap, ivec3(pos.x, pos.y, pos.z - n)).x;
+              m_min = min(m_min, max(n, gijnk));
             }
-            if ((z + n) < dim.z && n < m_min) { // note early exit possible
-              const uint gijnk = imageLoad(dist_swap, ivec3(pos.x, pos.y, z + n)).x;
-              const uint m = max(n, gijnk);
-              if (m < m_min)
-                m_min = m;
+            if ((pos.z + n) < dim.z && n < m_min) { // note early exit possible
+              const uint gijnk = imageLoad(dist_swap, ivec3(pos.x, pos.y, pos.z + n)).x;
+              m_min = min(m_min, max(n, gijnk));
             }
           }
-          imageStore(dist, p, ivec4(m_min));
+          imageStore(dist, pos, uvec4(m_min));
         }
     }
 }

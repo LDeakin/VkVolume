@@ -38,6 +38,12 @@ core::Buffer stage_buffer(vkb::CommandBuffer &command_buffer, const std::vector<
 	return stage_buffer;
 }
 
+template <typename T>
+T rndUp(T a, T b)
+{
+	return (a + b - 1) / b;
+}
+
 VolumeRenderSubpass::VolumeRenderSubpass(RenderContext &render_context, sg::Scene &scene, sg::Camera &cam, Options options) :
     Subpass{render_context,
             vkb::fs::read_shader("volume_render_clipped.vert"),
@@ -47,7 +53,12 @@ VolumeRenderSubpass::VolumeRenderSubpass(RenderContext &render_context, sg::Scen
     volumes{scene.get_components<Volume>()},
     options(options)
 {
-	if (options.skipping_type == SkippingType::Block)
+	shader_variant.add_define("PRECOMPUTED_GRADIENT");
+	if (options.skipping_type == SkippingType::AnisotropicDistance)
+	{
+		shader_variant.add_define("ANISOTROPIC_DISTANCE");
+	}
+	else if (options.skipping_type == SkippingType::Block)
 	{
 		shader_variant.add_define("BLOCK_SKIP");
 	}
@@ -75,15 +86,15 @@ VolumeRenderSubpass::VolumeRenderSubpass(RenderContext &render_context, sg::Scen
 	{
 		shader_variant.add_define("SHOW_NUM_SAMPLES");
 	}
+}
 
+void VolumeRenderSubpass::prepare()
+{
 	// Build all shaders upfront
 	auto &resource_cache = render_context.get_device().get_resource_cache();
 	resource_cache.request_shader_module(VK_SHADER_STAGE_VERTEX_BIT, get_vertex_shader(), shader_variant);
 	resource_cache.request_shader_module(VK_SHADER_STAGE_VERTEX_BIT, vertex_source_plane_intersection, shader_variant);
 	resource_cache.request_shader_module(VK_SHADER_STAGE_FRAGMENT_BIT, get_fragment_shader(), shader_variant);
-
-	// FIXME: split the uniform into global parameters, per volume parameters and per-frame parameters (which should be dynamic)
-	//vert_module.set_resource_dynamic("VolumeRenderUniform");
 
 	auto &device = render_context.get_device();
 
@@ -201,53 +212,67 @@ void VolumeRenderSubpass::draw(CommandBuffer &command_buffer)
 
 	for (auto volume : volumes)
 	{
-		// Populate uniform values
-		VolumeRenderUniform volume_render_uniform;
-		volume_render_uniform.sampling_factor         = volume->options.sampling_factor;
-		volume_render_uniform.voxel_alpha_factor      = volume->options.voxel_alpha_factor;
-		volume_render_uniform.grad_magnitude_modifier = 1.0f;
-		volume_render_uniform.intensity_min           = volume->options.intensity_min;
-		volume_render_uniform.intensity_max           = volume->options.intensity_max;
-		volume_render_uniform.gradient_min            = volume->options.gradient_min;
-		volume_render_uniform.gradient_max            = volume->options.gradient_max;
-		volume_render_uniform.camera_view             = camera.get_view();
-		volume_render_uniform.camera_proj             = vkb::vulkan_style_projection(camera.get_projection());
-		volume_render_uniform.camera_view_proj_inv    = glm::inverse(volume_render_uniform.camera_proj * volume_render_uniform.camera_view);
-		volume_render_uniform.model                   = volume->get_node()->get_transform().get_matrix() * volume->get_image_transform();
-		volume_render_uniform.model_inv               = glm::inverse(volume_render_uniform.model);
+		TransferFunctionUniform transfer_function_uniform = volume->get_transfer_function_uniform();
 
-		// Coordinate transformations between global, model (local) and texture coordinates
-		glm::mat4 model_to_tex  = glm::translate(glm::vec3(0.5f));        // we just use a unit cube from [-0.5 to 0.5] so putting it at [0-1] is just a translation
-		glm::mat4 global_to_tex = model_to_tex * volume_render_uniform.model_inv;
+		CameraUniform camera_uniform;
+		camera_uniform.camera_view          = camera.get_view();
+		camera_uniform.camera_proj          = vkb::vulkan_style_projection(camera.get_projection());
+		camera_uniform.camera_view_proj_inv = glm::inverse(camera_uniform.camera_proj * camera_uniform.camera_view);
+		camera_uniform.model                = volume->get_node()->get_transform().get_matrix() * volume->get_image_transform();
+		camera_uniform.model_inv            = glm::inverse(camera_uniform.model);
 
-		// Camera position in texture coordinates
-		const glm::mat4 viewInv              = glm::inverse(camera.get_view());
-		const glm::vec3 cam_pos_global       = viewInv[3];
-		const glm::vec3 cam_pos_model        = volume_render_uniform.model_inv * glm::vec4(cam_pos_global, 1.0f);
-		volume_render_uniform.camera_pos_tex = model_to_tex * glm::vec4(cam_pos_model, 1.0f);
-
-		// Clip plane in global coordinates and texture coordinates
+		RayCastUniform  ray_cast_uniform;
+		glm::mat4       model_to_tex    = glm::translate(glm::vec3(0.5f));        // we just use a unit cube from [-0.5 to 0.5] so putting it at [0-1] is just a translation
+		glm::mat4       global_to_tex   = model_to_tex * camera_uniform.model_inv;
+		const glm::mat4 viewInv         = glm::inverse(camera.get_view());
+		const glm::vec3 cam_pos_global  = viewInv[3];
+		const glm::vec3 cam_pos_model   = camera_uniform.model_inv * glm::vec4(cam_pos_global, 1.0f);
+		ray_cast_uniform.camera_pos_tex = model_to_tex * glm::vec4(cam_pos_model, 1.0f);
 		const glm::vec3 cam_dir_global  = glm::vec3(viewInv * glm::vec4(0, 0, -1, 0));
-		volume_render_uniform.plane     = glm::vec4(cam_dir_global, -options.clip_distance - glm::dot(cam_pos_global, cam_dir_global));
-		volume_render_uniform.plane_tex = glm::inverseTranspose(global_to_tex) * volume_render_uniform.plane;        // plane transform is inverse transpose of equivalent vector transform
-
-		// Get the "front" index of the cube (i.e. vertex furthest behind the clipping plane)
-		volume_render_uniform.front_index = (volume_render_uniform.plane_tex.x < 0 ? 1 : 0) +
-		                                    (volume_render_uniform.plane_tex.y < 0 ? 2 : 0) +
-		                                    (volume_render_uniform.plane_tex.z < 0 ? 4 : 0);
+		ray_cast_uniform.plane          = glm::vec4(cam_dir_global, -options.clip_distance - glm::dot(cam_pos_global, cam_dir_global));
+		ray_cast_uniform.plane_tex      = glm::inverseTranspose(global_to_tex) * ray_cast_uniform.plane;
+		ray_cast_uniform.front_index    = (ray_cast_uniform.plane_tex.x < 0 ? 1 : 0) +
+		                               (ray_cast_uniform.plane_tex.y < 0 ? 2 : 0) +
+		                               (ray_cast_uniform.plane_tex.z < 0 ? 4 : 0);
+		auto volume_extent          = volume->get_volume().image->get_extent();
+		auto map_extent             = volume->get_distance_map().image->get_extent();
+		ray_cast_uniform.block_size = glm::vec4(
+		    rndUp(volume_extent.width, map_extent.width),
+		    rndUp(volume_extent.height, map_extent.height),
+		    rndUp(volume_extent.depth, map_extent.depth),
+		    0);
+		//options.resume_factor * transfer_function_uniform.sampling_factor *
+		//std::min(std::min(ray_cast_uniform.block_size.x, ray_cast_uniform.block_size.y), ray_cast_uniform.block_size.z);
 
 		// Allocate a buffer using the buffer pool from the active frame to store uniform values and bind it
-		auto &render_frame = get_render_context().get_active_frame();
-		auto  allocation   = render_frame.allocate_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(VolumeRenderUniform));
-		allocation.update(volume_render_uniform);
+		auto &render_frame                 = get_render_context().get_active_frame();
+		auto  allocation_transfer_function = render_frame.allocate_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(transfer_function_uniform));
+		allocation_transfer_function.update(transfer_function_uniform);
+		auto allocation_camera = render_frame.allocate_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(camera_uniform));
+		allocation_camera.update(camera_uniform);
+		auto allocation_ray_cast = render_frame.allocate_buffer(VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, sizeof(ray_cast_uniform));
+		allocation_ray_cast.update(ray_cast_uniform);
 
 		// Draw clipped cuboid
 		command_buffer.bind_pipeline_layout(pipeline_layout);
-		command_buffer.bind_buffer(allocation.get_buffer(), allocation.get_offset(), allocation.get_size(), 0, 1, 0);
-		command_buffer.bind_image(*volume->get_volume().image_view, *volume->get_volume().sampler, 0, 2, 0);
-		//command_buffer.bind_image(*volume->get_gradient().image_view, *volume->get_gradient().sampler, 0, 3, 0);
-		//command_buffer.bind_image(*volume->get_transfer_function().image_view, *volume->get_transfer_function().sampler, 0, 4, 0);
-		command_buffer.bind_image(*volume->get_distance_map().image_view, *volume->get_distance_map().sampler, 0, 5, 0);
+		command_buffer.bind_buffer(allocation_camera.get_buffer(), allocation_camera.get_offset(), allocation_camera.get_size(), 0, 1, 0);
+		command_buffer.bind_buffer(allocation_ray_cast.get_buffer(), allocation_ray_cast.get_offset(), allocation_ray_cast.get_size(), 0, 2, 0);
+		command_buffer.bind_buffer(allocation_transfer_function.get_buffer(), allocation_transfer_function.get_offset(), allocation_transfer_function.get_size(), 0, 3, 0);
+		command_buffer.bind_image(*volume->get_transfer_function().image_view, *volume->get_transfer_function().sampler, 0, 4, 0);
+		command_buffer.bind_image(*volume->get_volume().image_view, *volume->get_volume().sampler, 0, 5, 0);
+		command_buffer.bind_image(*volume->get_gradient().image_view, *volume->get_gradient().sampler, 0, 6, 0);
+		if (options.skipping_type == SkippingType::AnisotropicDistance)
+		{
+			for (int i = 0; i < 8; ++i)
+			{
+				auto &distance_map = volume->get_distance_map(i);
+				command_buffer.bind_image(*distance_map.image_view, *distance_map.sampler, 0, 7, i);
+			}
+		}
+		else
+		{
+			command_buffer.bind_image(*volume->get_distance_map().image_view, *volume->get_distance_map().sampler, 0, 7, 0);
+		}
 		command_buffer.bind_vertex_buffers(0, {*vertex_buffer}, {0});
 		command_buffer.bind_index_buffer(*index_buffer, 0, VkIndexType::VK_INDEX_TYPE_UINT32);
 		command_buffer.draw_indexed(index_count, 1, 0, 0, 0);

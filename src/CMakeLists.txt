@@ -19,6 +19,8 @@ find_package(Boost REQUIRED)
 
 set(SOURCES
   compute_distance_map.cpp
+  compute_gradient_map.cpp
+  compute_occupied_voxel_count.cpp
   load_volume.cpp
   orbit_camera.cpp
   volume_component.cpp
@@ -29,14 +31,12 @@ set(SOURCES
 
 if(MSVC)
   add_executable(vrender WIN32 ${SOURCES})
+  set_property(TARGET vrender PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+  set_target_properties(vrender PROPERTIES LINK_FLAGS /SUBSYSTEM:CONSOLE)
 else()
   add_executable(vrender ${SOURCES})
 endif()
 
 target_link_libraries(vrender framework Boost::boost)
-
-if (MSVC)
-  set_property(TARGET vrender PROPERTY VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
-endif()
 
 install(TARGETS vrender DESTINATION "./")

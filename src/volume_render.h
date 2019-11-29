@@ -22,6 +22,8 @@
 #include "scene_graph/components/camera.h"
 
 #include "compute_distance_map.h"
+#include "compute_gradient_map.h"
+#include "compute_occupied_voxel_count.h"
 #include "volume_render_subpass.h"
 
 class VolumeRender : public vkb::VulkanSample
@@ -41,14 +43,21 @@ class VolumeRender : public vkb::VulkanSample
 	vkb::RenderTarget create_render_target(vkb::core::Image &&swapchain_image);
 
 	vkb::sg::Node &add_orbit_camera(const std::string &node_name);
-	void           update_distance_map(Volume &volume);
-	void           init_render_pipeline();
+
+  void VolumeRender::update_transfer_function(Volume &volume);
+
+	vkb::CommandBuffer &compute_start();
+	void                compute_submit(vkb::CommandBuffer &command_buffer);
+
+	void init_render_pipeline();
 
 	virtual void draw_gui() override;
 
 	vkb::sg::Camera *camera;
 
-	std::unique_ptr<ComputeDistanceMap> compute_distance_map;
+	std::unique_ptr<ComputeDistanceMap>        compute_distance_map;
+  std::unique_ptr<ComputeGradientMap>        compute_gradient_map;
+	std::unique_ptr<ComputeOccupiedVoxelCount> compute_occupied_voxel_count;
 
 	// Options
 	int                          block_size;

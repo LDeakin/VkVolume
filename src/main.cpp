@@ -21,11 +21,14 @@
 #include "volume_render.h"
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 #	include "platform/windows/windows_platform.h"
-int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-                     PSTR lpCmdLine, INT nCmdShow)
+int main(int argc, char *argv[])
 {
-	vkb::WindowsPlatform platform{hInstance, hPrevInstance,
-	                              lpCmdLine, nCmdShow};
+	vkb::WindowsPlatform platform(argc, argv);
+//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+//                     PSTR lpCmdLine, INT nCmdShow)
+//{
+//	vkb::WindowsPlatform platform{hInstance, hPrevInstance,
+//	                              lpCmdLine, nCmdShow};
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
 #	include "platform/linux/linux_d2d_platform.h"
 int main(int argc, char *argv[])
@@ -38,7 +41,7 @@ int main(int argc, char *argv[])
 	vkb::LinuxPlatform platform{argc, argv};
 #endif
 
-	try
+	//try
 	{
 		auto sample = create_volume_render();
 		sample->set_name("volume_render");
@@ -55,9 +58,9 @@ int main(int argc, char *argv[])
 		}
 		platform.terminate(vkb::ExitCode::Success);
 	}
-	catch (const std::exception &e)
-	{
-		LOGE(e.what());
-		platform.terminate(vkb::ExitCode::FatalError);
-	}
+	//catch (const std::exception &e)
+	//{
+	//	LOGE(e.what());
+	//	platform.terminate(vkb::ExitCode::FatalError);
+	//}
 }
