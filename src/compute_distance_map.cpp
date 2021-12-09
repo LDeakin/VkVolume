@@ -25,9 +25,9 @@ auto rndUp = [](int x, int y) { return (x + y - 1) / y; };
 
 ComputeDistanceMap::ComputeDistanceMap(vkb::RenderContext &render_context) :
     render_context(render_context),
-    compute_shader_occupancy(vkb::fs::read_shader("occupancy_map.comp")),
-    compute_shader_distance(vkb::fs::read_shader("distance_map.comp")),
-    compute_shader_distance_anisotropic(vkb::fs::read_shader("distance_map_anisotropic.comp"))
+    compute_shader_occupancy("occupancy_map.comp"),
+    compute_shader_distance("distance_map.comp"),
+    compute_shader_distance_anisotropic("distance_map_anisotropic.comp")
 {
 	vkb::ShaderVariant variant;
 	variant.add_define("PRECOMPUTED_GRADIENT");
@@ -133,7 +133,7 @@ void ComputeDistanceMap::computeOccupancy(vkb::CommandBuffer &command_buffer, co
 	}
 	command_buffer.bind_input(*occupancy_map.image_view, 0, 4, 0);
 
-	command_buffer.push_constants<glm::ivec4>(0, glm::ivec4(block_size, 0));
+	command_buffer.push_constants(glm::ivec4(block_size, 0));
 	command_buffer.dispatch(rndUp(extent.width, 8), rndUp(extent.height, 8), rndUp(extent.depth, 8));
 
 	command_buffer.image_memory_barrier(*occupancy_map.image_view, memory_barrier_write_to_read);
@@ -157,18 +157,18 @@ void ComputeDistanceMap::computeDistance(vkb::CommandBuffer &command_buffer, con
 	command_buffer.bind_input(*distance.image_view, 0, 1, 0);
 
 	// Dispatch 1st stage
-	command_buffer.push_constants<uint32_t>(0, 0);
+	command_buffer.push_constants<uint32_t>(0);
 	command_buffer.dispatch(rndUp(extent.height, 8), rndUp(extent.depth, 8), 1);
 	command_buffer.image_memory_barrier(*distance.image_view, memory_barrier_write_to_read);
 
 	// Dispatch 2nd stage
 	command_buffer.bind_input(*swap.image_view, 0, 1, 0);
-	command_buffer.push_constants<uint32_t>(0, 1);
+	command_buffer.push_constants<uint32_t>(1);
 	command_buffer.dispatch(rndUp(extent.width, 8), rndUp(extent.depth, 8), 1);
 	command_buffer.image_memory_barrier(*swap.image_view, memory_barrier_write_to_read);
 
 	// Dispatch 3rd stage
-	command_buffer.push_constants<uint32_t>(0, 2);
+	command_buffer.push_constants<uint32_t>(2);
 	command_buffer.dispatch(rndUp(extent.width, 8), rndUp(extent.height, 8), 1);
 
 	command_buffer.image_memory_barrier(*distance.image_view, memory_barrier_compute_to_fragment);
@@ -192,10 +192,15 @@ void ComputeDistanceMap::computeDistanceAnisotropic(vkb::CommandBuffer &command_
 		command_buffer.image_memory_barrier(*distance.image_view, memory_barrier_to_compute);
 	}
 
+	struct PushConstants
+	{
+		uint32_t stage;
+		int32_t  direction;
+	};
+
 	auto stage1 = [&](size_t distance_map_idx, int32_t direction) {
 		auto &distance = volume.get_distance_map(distance_map_idx);
-		command_buffer.push_constants<uint32_t>(0, 0);
-		command_buffer.push_constants<int32_t>(sizeof(int32_t), direction);
+		command_buffer.push_constants<PushConstants>({0, direction});
 		command_buffer.bind_input(*distance.image_view, 0, 0, 0);
 		command_buffer.bind_input(*occupancy_map.image_view, 0, 1, 0);
 		command_buffer.dispatch(rndUp(extent.height, 8), rndUp(extent.depth, 8), 1);
@@ -204,8 +209,7 @@ void ComputeDistanceMap::computeDistanceAnisotropic(vkb::CommandBuffer &command_
 
 	auto stage2 = [&](size_t distance_map_idx, int32_t direction) {
 		auto &distance = volume.get_distance_map(distance_map_idx);
-		command_buffer.push_constants<uint32_t>(0, 1);
-		command_buffer.push_constants<int32_t>(sizeof(int32_t), direction);
+		command_buffer.push_constants<PushConstants>({1, direction});
 		command_buffer.bind_input(*distance.image_view, 0, 0, 0);
 		command_buffer.bind_input(*swap.image_view, 0, 1, 0);
 		command_buffer.dispatch(rndUp(extent.width, 8), rndUp(extent.depth, 8), 1);
@@ -215,8 +219,7 @@ void ComputeDistanceMap::computeDistanceAnisotropic(vkb::CommandBuffer &command_
 	auto stage3 = [&](size_t distance_map_idx, int32_t direction) {
 		auto &distance = volume.get_distance_map(distance_map_idx);
 		command_buffer.image_memory_barrier(*distance.image_view, memory_barrier_to_compute);
-		command_buffer.push_constants<uint32_t>(0, 2);
-		command_buffer.push_constants<int32_t>(sizeof(int32_t), direction);
+		command_buffer.push_constants<PushConstants>({2, direction});
 		command_buffer.bind_input(*distance.image_view, 0, 0, 0);
 		command_buffer.bind_input(*swap.image_view, 0, 1, 0);
 		command_buffer.dispatch(rndUp(extent.width, 8), rndUp(extent.height, 8), 1);

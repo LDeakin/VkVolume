@@ -25,7 +25,7 @@ auto rndUp = [](int x, int y) { return (x + y - 1) / y; };
 
 ComputeGradientMap::ComputeGradientMap(vkb::RenderContext &render_context) :
     render_context(render_context),
-    compute_shader(vkb::fs::read_shader("gradient_map.comp"))
+    compute_shader("gradient_map.comp")
 {
 	// Build all shaders upfront
 	auto &resource_cache = render_context.get_device().get_resource_cache();

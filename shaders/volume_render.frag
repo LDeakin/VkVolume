@@ -18,13 +18,15 @@
 
 #extension GL_GOOGLE_include_directive : enable
 
+#define REVERSE_DEPTH
+
 precision highp float;
 
 #ifdef DEPTH_ATTACHMENT
 layout (input_attachment_index = 0, binding = 0) uniform subpassInput i_depth;
 #endif
 
-layout(location = 0) in vec4 pos_view_space;
+layout(location = 0) in vec4 position; // gl_Position
 layout(location = 1) in vec3 ray_entry;
 
 layout(set = 0, binding = 1) uniform CameraUniform {
@@ -60,7 +62,11 @@ layout (set = 0, binding = 7) uniform mediump usampler3D distance_map[1];
 #endif
 
 layout(location = 0) out vec4 out_color;
+#ifdef REVERSE_DEPTH
+layout(depth_less) out float gl_FragDepth;
+#else
 layout(depth_greater) out float gl_FragDepth;
+#endif
 
 vec3 ray_caster_get_back(const in vec3 front, const in vec3 dir) {
   // Use AABB ray-box intersection (simplified due to unit cube [0-1]) to get intersection with back
@@ -74,14 +80,6 @@ vec3 ray_caster_get_back(const in vec3 front, const in vec3 dir) {
 
   // Return the back intersection
   return tFar * dir + front;
-}
-
-float ray_penetration_to_frag_depth(float depth_distance, vec3 ray_entry, float ray_distance) {
-  float dist_front = distance(ray_entry, ray_cast_uniform.cam_pos_tex.xyz);
-  float relative_depth = (dist_front + ray_distance * depth_distance) / dist_front;
-  vec4 pos_view_space_at_depth = vec4(pos_view_space.xyz * relative_depth, 1.0f);
-  vec4 p_clip = camera_uniform.proj * pos_view_space_at_depth;
-  return p_clip.z / p_clip.w;
 }
 
 float get_gradient(vec3 pos, vec3 dim_inv) {
@@ -126,31 +124,41 @@ void main()
   float frag_depth = subpassLoad(i_depth).x;
   
   // Manual z-test of front face
-  vec4 clip_front = camera_uniform.proj * pos_view_space;
-  float frag_depth_front = clip_front.z / clip_front.w;
-  if (frag_depth < frag_depth_front) {
-    discard;
-  } else {
-    gl_FragDepth = frag_depth;
-  }
-  
-  // Find where ray intersects with depth buffer in texture coordinates
-  vec4 clip_at_depth = vec4(clip_front.xyz * frag_depth / frag_depth_front, clip_front.w);
-  vec4 pos_at_depth = camera_uniform.view_proj_inv * clip_at_depth;
-  pos_at_depth /= pos_at_depth.w;
-  vec3 ray_intersect_depth_buffer = (camera_uniform.model_inv * pos_at_depth).xyz + 0.5f;
-  float ray_distance_depth_buffer = distance(ray_entry, ray_intersect_depth_buffer);
+  float frag_depth_front = position.z / position.w;
+#ifdef REVERSE_DEPTH
+  if (frag_depth > frag_depth_front) {
 #else
-  gl_FragDepth = 1.0f;
+  if (frag_depth < frag_depth_front) {
+#endif
+    discard; // front face is behind the sponza scene
+  } else {
+    gl_FragDepth = frag_depth; // set equal depth
+  }
+#else
+  // Set frag depth to max distance
+  #ifdef REVERSE_DEPTH
+  gl_FragDepth = 0.0f;
+  #else
+  gl_FragDepth = 1.0f; 
+  #endif
 #endif
 
   // Get ray exit
   vec3 ray_dir = normalize(ray_entry - ray_cast_uniform.cam_pos_tex.xyz);
   vec3 ray_exit = ray_caster_get_back(ray_entry, ray_dir);
   float ray_distance = distance(ray_entry, ray_exit);
+
 #ifdef DEPTH_ATTACHMENT
+  // Calculate where ray intersects with the depth buffer in texture coordinates
+  vec4 clip_at_depth = vec4(position.xyz * frag_depth / frag_depth_front, position.w);
+  vec4 pos_at_depth = camera_uniform.view_proj_inv * clip_at_depth;
+  pos_at_depth /= pos_at_depth.w;
+  vec3 ray_intersect_depth_buffer = (camera_uniform.model_inv * pos_at_depth).xyz + 0.5f;
+
+  // If the depth buffer exit is in front of the normal back intersection, use it instead
+  //  This ensures that rays stop sampling at the depth already in the depth buffer
+  float ray_distance_depth_buffer = distance(ray_entry, ray_intersect_depth_buffer);
   if (ray_distance_depth_buffer < ray_distance) {
-    // If the depth buffer exit is in front of the normal back intersection, use it instead
     ray_exit = ray_intersect_depth_buffer;
     ray_distance = ray_distance_depth_buffer;
   }
@@ -203,7 +211,7 @@ void main()
 
   // Step through volume
   bool voxel_occupied = true;
-  float ray_penetration = 1.0f; // assume ray goes through
+  int i_first_hit = n_steps; // assume ray goes through
   for (int i = 0; i < n_steps;) {
     vec3 pos = ray_entry + float(i) * step_volume;
     
@@ -278,10 +286,11 @@ void main()
         // Blend
         out_color = out_color + (1.0f - out_color.a) * color;
 
-        if (out_color.a > 0.99f) {
-          // Set ray penetration
-          ray_penetration = float(i) / (float(n_steps) - 1.0f);
+        if (color.a > 0.0f) {
+          i_first_hit = i;
+        }
 
+        if (out_color.a > 0.99f) {
           #ifndef DISABLE_EARLY_RAY_TERMINATION
           // Early ray termination
           out_color.a = 1.0f;
@@ -302,11 +311,13 @@ void main()
 
   }
 
-
-
   // Write the depth
-  if (out_color.a > 0.0f && ray_penetration < 1.0f) {
-    gl_FragDepth = ray_penetration_to_frag_depth(ray_penetration, ray_entry, ray_distance);
+  if (out_color.a > 0.0f && i_first_hit < n_steps) {
+    // FIXME: This can be optimised... eg. tex -> proj transform
+    vec3 penetration_tex = ray_entry + step_volume * i_first_hit;
+    vec3 penetration_model = penetration_tex - 0.5f;
+    vec4 penetration_proj = camera_uniform.proj * camera_uniform.view * camera_uniform.model * vec4(penetration_model, 1.0f);
+    gl_FragDepth = penetration_proj.z / penetration_proj.w;
   }
 
 #ifdef SHOW_NUM_SAMPLES

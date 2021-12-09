@@ -46,9 +46,9 @@ T rndUp(T a, T b)
 
 VolumeRenderSubpass::VolumeRenderSubpass(RenderContext &render_context, sg::Scene &scene, sg::Camera &cam, Options options) :
     Subpass{render_context,
-            vkb::fs::read_shader("volume_render_clipped.vert"),
-            vkb::fs::read_shader("volume_render.frag")},
-    vertex_source_plane_intersection(vkb::fs::read_shader("volume_render_plane_intersection.vert")),
+            {"volume_render_clipped.vert"},
+            {"volume_render.frag"}},
+    vertex_source_plane_intersection("volume_render_plane_intersection.vert"),
     camera{cam},
     volumes{scene.get_components<Volume>()},
     options(options)
@@ -181,7 +181,9 @@ void VolumeRenderSubpass::draw(CommandBuffer &command_buffer)
 	color_blend_state.attachments[0] = color_blend_attachment;
 	command_buffer.set_color_blend_state(color_blend_state);
 
-	command_buffer.set_depth_stencil_state(get_depth_stencil_state());
+	DepthStencilState depth_stencil_state{};
+	depth_stencil_state.depth_compare_op = VK_COMPARE_OP_GREATER_OR_EQUAL;
+	command_buffer.set_depth_stencil_state(depth_stencil_state);
 
 	// Get image views of the attachments
 	auto &render_target = get_render_context().get_active_frame().get_render_target();

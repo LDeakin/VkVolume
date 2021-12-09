@@ -34,7 +34,7 @@ layout(set = 0, binding = 2) uniform RayCastUniform {
     int front_index;
 } ray_cast_uniform;
 
-layout(location = 0) out vec4 pos_view_space;
+layout(location = 0) out vec4 position_out;
 layout(location = 1) out vec3 ray_entry;
 
 // A Vertex Program for Efficient Box-Plane Intersection
@@ -121,7 +121,10 @@ void main()
         }
     }
 
-    pos_view_space = camera_uniform.view * camera_uniform.model * vec4(pos_tex - 0.5f, 1.0f);
+    // Ray entry (in texel coordinates)
     ray_entry = pos_tex;
-    gl_Position = camera_uniform.proj * pos_view_space;
+
+    // Output (projection space)
+    position_out = camera_uniform.proj * camera_uniform.view * camera_uniform.model * vec4(pos_tex - 0.5f, 1.0f);
+    gl_Position = position_out;
 }

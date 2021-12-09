@@ -38,7 +38,7 @@ layout(set = 0, binding = 2) uniform RayCastUniform {
     int front_index;
 } ray_cast_uniform;
 
-layout(location = 0) out vec4 pos_view_space;
+layout(location = 0) out vec4 position_out;
 layout(location = 1) out vec3 ray_entry;
 
 out gl_PerVertex 
@@ -54,9 +54,12 @@ void main()
 
     // Distance to clip plane
     gl_ClipDistance[0] = dot(ray_cast_uniform.plane, position_world);
-    
-    pos_view_space = camera_uniform.view * position_world;
+
+    // Ray entry (in texel coordinates)
     ray_entry = position + 0.5f;
-    gl_Position = camera_uniform.proj * pos_view_space;
+
+    // Output (projection space)
+    position_out = camera_uniform.proj * camera_uniform.view * position_world;
+    gl_Position = position_out;
 
 }

@@ -1,6 +1,6 @@
 [submodule "third_party/Vulkan-samples"]
 	path = third_party/Vulkan-samples
-	url = https://github.com/LDeakin/Vulkan-samples
+	url = git@github.com:KhronosGroup/Vulkan-Samples.git
 [submodule "third_party/boost_endian"]
 	path = third_party/boost_endian
 	url = https://github.com/boostorg/endian.git

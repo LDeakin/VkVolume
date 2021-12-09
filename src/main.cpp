@@ -17,18 +17,17 @@
 
 #include "common/logging.h"
 #include "platform/platform.h"
+#include "plugins/plugins.h"
 
 #include "volume_render.h"
+
 #if defined(VK_USE_PLATFORM_WIN32_KHR)
 #	include "platform/windows/windows_platform.h"
-int main(int argc, char *argv[])
+int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
+                     PSTR lpCmdLine, INT nCmdShow)
 {
-	vkb::WindowsPlatform platform(argc, argv);
-//int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
-//                     PSTR lpCmdLine, INT nCmdShow)
-//{
-//	vkb::WindowsPlatform platform{hInstance, hPrevInstance,
-//	                              lpCmdLine, nCmdShow};
+	vkb::WindowsPlatform platform{hInstance, hPrevInstance,
+	                              lpCmdLine, nCmdShow};
 #elif defined(VK_USE_PLATFORM_DISPLAY_KHR)
 #	include "platform/linux/linux_d2d_platform.h"
 int main(int argc, char *argv[])
@@ -41,26 +40,13 @@ int main(int argc, char *argv[])
 	vkb::LinuxPlatform platform{argc, argv};
 #endif
 
-	//try
+	apps::AppInfo app_info = {"volume_render",
+	                          create_volume_render};
+	auto          code     = platform.initialize(plugins::get_all());
+	platform.request_application(&app_info);
+	if (code == vkb::ExitCode::Success)
 	{
-		auto sample = create_volume_render();
-		sample->set_name("volume_render");
-		sample->parse_options(platform.get_arguments());
-
-		if (platform.initialize(std::move(sample)))
-		{
-			platform.main_loop();
-			platform.terminate(vkb::ExitCode::Success);
-		}
-		else
-		{
-			platform.terminate(vkb::ExitCode::UnableToRun);
-		}
-		platform.terminate(vkb::ExitCode::Success);
+		platform.main_loop();
 	}
-	//catch (const std::exception &e)
-	//{
-	//	LOGE(e.what());
-	//	platform.terminate(vkb::ExitCode::FatalError);
-	//}
+	platform.terminate(code);
 }

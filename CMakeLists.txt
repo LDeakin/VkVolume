@@ -19,24 +19,12 @@ cmake_minimum_required(VERSION 3.10)
 
 project(vulkan_samples_volume_renderer)
 
-set(VULKAN_SAMPLES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Vulkan-samples)
-string(LENGTH "${CMAKE_SOURCE_DIR}/" ROOT_PATH_SIZE)
-add_definitions(-DROOT_PATH_SIZE=${ROOT_PATH_SIZE})
-
 # Add vulkan framework
-set(VKB_VALIDATION_LAYERS OFF CACHE BOOL "Enable validation layers.")
-macro(vulkan_samples_pch SRCS PCHCPP)
-  if(MSVC AND CMAKE_GENERATOR MATCHES "^Visual Studio")
-    set(PCH_NAME "$(IntDir)\\pch.pch")
-    # make source files use/depend on PCH_NAME
-    set_source_files_properties(${${SRCS}} PROPERTIES COMPILE_FLAGS "/Yupch.h /FIpch.h /Fp${PCH_NAME} /Zm300" OBJECT_DEPENDS "${PCH_NAME}")
-    # make PCHCPP file compile and generate PCH_NAME
-    set_source_files_properties(${PCHCPP} PROPERTIES COMPILE_FLAGS "/Ycpch.h /Fp${PCH_NAME} /Zm300" OBJECT_OUTPUTS "${PCH_NAME}")
-    list(APPEND ${SRCS} "${PCHCPP}")
-  endif()
-endmacro(vulkan_samples_pch)
-add_subdirectory(${VULKAN_SAMPLES}/third_party)
-add_subdirectory(${VULKAN_SAMPLES}/framework)
+set(VULKAN_SAMPLES ${CMAKE_CURRENT_SOURCE_DIR}/third_party/Vulkan-samples)
+add_subdirectory(${VULKAN_SAMPLES})
+
+# Fix issues..
+target_include_directories(apps PUBLIC ${VULKAN_SAMPLES}/samples)
 
 # Add source
 add_subdirectory(src)

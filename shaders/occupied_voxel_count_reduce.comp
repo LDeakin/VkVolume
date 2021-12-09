@@ -5,6 +5,7 @@
 #extension GL_ARB_gpu_shader_int64: enable
 #extension GL_KHR_shader_subgroup_basic: enable
 #extension GL_KHR_shader_subgroup_arithmetic: enable
+#extension GL_EXT_shader_subgroup_extended_types_int64: enable
 
 layout (local_size_x = SUBGROUP_SIZE) in;
 

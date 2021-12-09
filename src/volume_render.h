@@ -36,15 +36,13 @@ class VolumeRender : public vkb::VulkanSample
 
 	virtual void update(float delta_time) override;
 
-	virtual void get_device_features() override;
+	virtual void request_gpu_features(vkb::PhysicalDevice &gpu) override;
 
   private:
-	virtual void      prepare_render_context() override;
-	vkb::RenderTarget create_render_target(vkb::core::Image &&swapchain_image);
+	virtual void                       prepare_render_context() override;
+	std::unique_ptr<vkb::RenderTarget> create_render_target(vkb::core::Image &&swapchain_image);
 
-	vkb::sg::Node &add_orbit_camera(const std::string &node_name);
-
-  void VolumeRender::update_transfer_function(Volume &volume);
+	void VolumeRender::update_transfer_function(Volume &volume);
 
 	vkb::CommandBuffer &compute_start();
 	void                compute_submit(vkb::CommandBuffer &command_buffer);
@@ -56,7 +54,7 @@ class VolumeRender : public vkb::VulkanSample
 	vkb::sg::Camera *camera;
 
 	std::unique_ptr<ComputeDistanceMap>        compute_distance_map;
-  std::unique_ptr<ComputeGradientMap>        compute_gradient_map;
+	std::unique_ptr<ComputeGradientMap>        compute_gradient_map;
 	std::unique_ptr<ComputeOccupiedVoxelCount> compute_occupied_voxel_count;
 
 	// Options

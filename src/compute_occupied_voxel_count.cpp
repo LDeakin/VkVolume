@@ -27,17 +27,16 @@ auto rndUp = [](int x, int y) { return (x + y - 1) / y; };
 
 ComputeOccupiedVoxelCount::ComputeOccupiedVoxelCount(vkb::RenderContext &render_context) :
     render_context(render_context),
-    compute_shader(vkb::fs::read_shader("occupied_voxel_count.comp")),
-    compute_shader_reduce(vkb::fs::read_shader("occupied_voxel_count_reduce.comp"))
+    compute_shader("occupied_voxel_count.comp"),
+    compute_shader_reduce("occupied_voxel_count_reduce.comp")
 {
 	// Get subgroup size
-	render_context.get_device().get_features();
 	VkPhysicalDeviceSubgroupProperties subgroup_properties{};
 	subgroup_properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES;
 	VkPhysicalDeviceProperties2 properties{};
 	properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
 	properties.pNext = &subgroup_properties;
-	vkGetPhysicalDeviceProperties2(render_context.get_device().get_physical_device(), &properties);
+	vkGetPhysicalDeviceProperties2(render_context.get_device().get_gpu().get_handle(), &properties);
 	subgroup_size = subgroup_properties.subgroupSize;
 
 	// Build all shaders upfront
@@ -94,7 +93,7 @@ void ComputeOccupiedVoxelCount::compute(vkb::CommandBuffer &command_buffer, Volu
 		}
 
 		auto &shader_module = resource_cache.request_shader_module(VK_SHADER_STAGE_COMPUTE_BIT, compute_shader, variant);
-		shader_module.set_resource_dynamic("countBuffer");
+		shader_module.set_resource_mode("countBuffer", vkb::ShaderResourceMode::Dynamic);
 		auto &pipeline_layout = resource_cache.request_pipeline_layout({&shader_module});
 		command_buffer.bind_pipeline_layout(pipeline_layout);
 		command_buffer.bind_input(*volume.get_volume().image_view, 0, 0, 0);
@@ -134,8 +133,12 @@ void ComputeOccupiedVoxelCount::compute(vkb::CommandBuffer &command_buffer, Volu
 		const size_t nElements = buffer.get_size() / sizeof(uint64_t);
 		while (stride < nElements)
 		{
-			command_buffer.push_constants<uint64_t>(0, static_cast<uint64_t>(nElements));
-			command_buffer.push_constants<uint32_t>(sizeof(uint64_t), stride);
+			struct PushConstants
+			{
+				uint64_t n_elements;
+				uint32_t stride;
+			} pc = {static_cast<uint64_t>(nElements), stride};
+			command_buffer.push_constants(pc);
 			command_buffer.dispatch(static_cast<uint32_t>(rndUp64(nElements, static_cast<uint64_t>(subgroup_size) * static_cast<uint64_t>(stride))), 1, 1);
 			command_buffer.buffer_memory_barrier(buffer.get_buffer(), buffer.get_offset(), buffer.get_size(), barrier);
 			stride *= subgroup_size;
