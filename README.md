@@ -23,7 +23,7 @@ Please consider citing this work if you use it:
 ## Features
 * Ray casting volume renderer with efficient empty space skipping
   * Gradient map precomputed (compute shader)
-  * Simple sliders manipulate 2D Transfer Function (TF) texture
+  * Simple sliders to manipulate a linear 2D Transfer Function (TF) texture
   * Occupancy map update on TF change used for empty space skipping (compute shader)
   * Occupancy map to distance map for faster ray casting (comptue shader)
 * The viewpoint may enter the volume
@@ -38,18 +38,21 @@ Please consider citing this work if you use it:
 
 ## Building
 1. `git clone --recurse-submodules <this repository>`
-1. You need boost to assist with IO (for now). I recommend grabbing it through [vcpkg](https://github.com/microsoft/vcpkg) or just use the system package on linux
+1. Boost is needed to assist with IO (for now). I recommend grabbing it through [vcpkg](https://github.com/microsoft/vcpkg) or just use the system package on linux
 1. The first release includes "assets.zip" which includes the minimum required assets and some volumetric images.
 1. Put any other volumetric images in the newly copied assets folder.
 1. Do a regular cmake build (perhaps using the toolchain file from vcpkg)
 
 ## Running
 ```usage
-  vrender.exe <binary_volumetric_image>...
+  vrender.exe <binary_volumetric_image>
 ```
+
 Make sure the `assets` and `shaders` folders are in the working directory.
 Volumetric images need to be in the `assets` folder.
-Multiple volumetric images can be loaded by supplying multiple arguments.
+
+~~Multiple volumetric images can be loaded by supplying multiple arguments.~~ Could not get this working with current `Vulkan-Samples` arguments parser.
+
 The stag beetle image will be loaded if no arguments are supplied.
 
 ### Volumetric image format
@@ -80,14 +83,11 @@ This example has a number of parameters which can be modified at runtime
 
 ## License
 See [LICENSE](LICENSE).
-This example uses [Vulkan-samples](https://github.com/KhronosGroup/Vulkan-Samples) which has many third-party dependencies, each of which may have independent licensing.
+This example uses [Vulkan-Samples](https://github.com/KhronosGroup/Vulkan-Samples) which has many third-party dependencies, each of which may have independent licensing.
 
-## TODO
-* The IO is incredibly barebones now. needs error checking/file picking/loading and support some common formats for volumetric images
-* UI for proper texture-based 2D transfer functions
-* Modifications to vulkan-samples required to use a depth image as both an input attachment and depth stencil attachment simultaneously. Current behaviour:
-  * If sponza scene hidden, volumes write to depth image
-  * If sponza scene visible, volumes read from depth image and are clipped accordingly
-* ~~Sparse partially resident textures to support massive sparse images~~.
-  * Requires too much modification to [Vulkan-samples](https://github.com/KhronosGroup/Vulkan-Samples)
+## Limitations/TODO
+* The depth testing functionality is a bit hacky. 
+  * Modifications to Vulkan-Samples are required to use a depth image as both an input attachment and depth stencil attachment simultaneously. Current behaviour:
+    * If sponza scene hidden, volumes write to depth image
+    * If sponza scene visible, volumes read from depth image and are clipped accordingly
 * Pull requests are welcomed
