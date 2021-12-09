@@ -49,9 +49,42 @@ VKBP_ENABLE_WARNINGS()
 
 using namespace vkb;
 
+VolumeRenderPlugin::VolumeRenderPlugin() :
+    VolumeRenderPluginTags("VolumeRender",
+                           "VolumeRender input options",
+                           {}, {&cmd})
+{
+}
+
+bool VolumeRenderPlugin::is_active(const vkb::CommandParser &parser)
+{
+	return true;        // FORCE ACTIVE
+	                    //return parser.contains(&cmd);
+}
+
+void VolumeRenderPlugin::init(const vkb::CommandParser &parser)
+{
+	imin     = parser.contains(&imin_flag) ? parser.as<float>(&imin_flag) : 0.1f;
+	imax     = parser.contains(&imax_flag) ? parser.as<float>(&imax_flag) : 1.0f;
+	gmin     = parser.contains(&gmin_flag) ? parser.as<float>(&gmin_flag) : 0.0f;
+	gmax     = parser.contains(&gmax_flag) ? parser.as<float>(&gmax_flag) : 0.2f;
+	skipmode = VolumeRenderSubpass::SkippingType::Distance;
+	if (parser.contains(&skipmode_flag))
+	{
+		uint32_t skipmode_read = parser.as<uint32_t>(&skipmode_flag);
+		if (skipmode_read <= 3)
+		{
+			skipmode = static_cast<VolumeRenderSubpass::SkippingType>(skipmode_read);
+		}
+	}
+	blocksize     = parser.contains(&blocksize_flag) ? parser.as<uint32_t>(&blocksize_flag) : 4;
+	gradient_test = parser.contains(&gradient_test_flag);
+	datasets      = {parser.contains(&dataset_flag) ? parser.as<std::string>(&dataset_flag) : "stag_beetle_832x832x494.uint16"};
+	// FIXME: vkb::FlagType::ManyValues didn't seem to be working, switch to single dataset only for now
+}
+
 VolumeRender::VolumeRender() :
     camera(nullptr),
-    block_size(4),
     render_sponza_scene(false),
     spin_volumes(false)
 {
@@ -69,6 +102,8 @@ bool VolumeRender::prepare(vkb::Platform &platform)
 	{
 		return false;
 	}
+
+	auto &plugin = *platform.get_plugin<VolumeRenderPlugin>();
 
 	//std::string name        = "Volume renderer.";
 	//std::string description = R"(Volume renderer.
@@ -136,23 +171,9 @@ bool VolumeRender::prepare(vkb::Platform &platform)
 	camera = &camera_node.get_component<vkb::sg::Camera>();
 
 	// Get input volumetric image filenames
-	std::vector<std::string> volume_fns   = {"stag_beetle_832x832x494.uint16"};
-	vkb::FlagCommand         volumes_flag = {vkb::FlagType::ManyValues, "volume", "", "List of volumes"};
-	//if (options.contains("<binary_volume_image>"))
-	//{
-	//	volume_fns = options.get_list("<binary_volume_image>");
-	//}
 
 	// Set volume rendering options
-	//block_size = get_options().contains("--blocksize") ? get_options().get_int("--blocksize") : block_size;
-	//if (get_options().contains("--skipmode"))
-	//{
-	//	volume_render_options.skipping_type = (VolumeRenderSubpass::SkippingType) get_options().get_int("--skipmode");
-	//}
-	//else
-	//{
-	volume_render_options.skipping_type = VolumeRenderSubpass::SkippingType::Distance;
-	//}
+	volume_render_options.skipping_type = plugin.skipmode;
 	if (platform.using_plugin<::plugins::BenchmarkMode>())
 	{
 		volume_render_options.clip_distance         = 1.0f;
@@ -162,24 +183,19 @@ bool VolumeRender::prepare(vkb::Platform &platform)
 	}
 
 	// Load all of the volumes
-	for (auto volume_fn : volume_fns)
+	for (auto volume_fn : plugin.datasets)
 	{
 		auto volume = std::make_unique<Volume>(volume_fn);
 
 		// Set transfer function and update distance map
-		auto get_with_default = [this](std::string name, float default_value) {
-			//return get_options().contains(name) ? std::stof(get_options().get_string(name)) : default_value;
-			return default_value;
-		};
-		volume->options.intensity_min = get_with_default("--imin", 0.1f);
-		volume->options.intensity_max = get_with_default("--imax", 1.0f);
-		volume->options.gradient_min  = get_with_default("--gmin", 0.0f);
-		volume->options.gradient_max  = get_with_default("--gmax", 0.2f);
-		//volume->options.use_precomputed_gradient = !get_options().contains("--gradient_test");
-		volume->options.use_precomputed_gradient = true;
+		volume->options.intensity_min            = plugin.imin;
+		volume->options.intensity_max            = plugin.imax;
+		volume->options.gradient_min             = plugin.gmin;
+		volume->options.gradient_max             = plugin.gmax;
+		volume->options.use_precomputed_gradient = !plugin.gradient_test;
 
 		// Load from disk and prep textures
-		volume->load_from_file(*render_context, vkb::fs::path::get(vkb::fs::path::Assets, volume_fn), block_size);
+		volume->load_from_file(*render_context, vkb::fs::path::get(vkb::fs::path::Assets, volume_fn), plugin.blocksize);
 
 		auto &device = render_context->get_device();
 

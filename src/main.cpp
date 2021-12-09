@@ -42,8 +42,22 @@ int main(int argc, char *argv[])
 
 	apps::AppInfo app_info = {"volume_render",
 	                          create_volume_render};
-	auto          code     = platform.initialize(plugins::get_all());
 	platform.request_application(&app_info);
+
+	// Setup custom plugins for this example... Vulkan-samples needs an easier way of adding custom args to a sample
+	auto                       plugins_default      = plugins::get_all();
+	auto                       volume_render_plugin = std::make_unique<VolumeRenderPlugin>();
+	std::vector<vkb::Plugin *> plugins;
+	plugins.emplace_back(volume_render_plugin.get());
+	for (auto &plugin : plugins_default)
+	{
+		if (plugin->get_name() != "Apps" && plugin->get_name() != "Batch Mode")
+		{
+			plugins.emplace_back(plugin);
+		}
+	}
+
+	auto code = platform.initialize(plugins);
 	if (code == vkb::ExitCode::Success)
 	{
 		platform.main_loop();

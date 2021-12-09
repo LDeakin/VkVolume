@@ -26,6 +26,42 @@
 #include "compute_occupied_voxel_count.h"
 #include "volume_render_subpass.h"
 
+#include "platform/plugins/plugin_base.h"
+
+class VolumeRenderPlugin;
+
+using VolumeRenderPluginTags = vkb::PluginBase<VolumeRenderPlugin, vkb::tags::Passive>;
+
+class VolumeRenderPlugin : public VolumeRenderPluginTags
+{
+  public:
+	VolumeRenderPlugin();
+
+	virtual ~VolumeRenderPlugin() = default;
+
+	virtual bool is_active(const vkb::CommandParser &parser) override;
+
+	virtual void init(const vkb::CommandParser &parser) override;
+
+	vkb::FlagCommand imin_flag{vkb::FlagType::OneValue, "imin", "", "Intensity minimum"};
+	vkb::FlagCommand imax_flag{vkb::FlagType::OneValue, "imax", "", "Intensity maximum"};
+	vkb::FlagCommand gmin_flag{vkb::FlagType::OneValue, "gmin", "", "Gradient minimum"};
+	vkb::FlagCommand gmax_flag{vkb::FlagType::OneValue, "gmax", "", "Gradient maximum"};
+	vkb::FlagCommand skipmode_flag{vkb::FlagType::OneValue, "skipmode", "", "Skipping mode 0=None, 1=Block 2=Distance 3=DistanceAnisotropic"};
+	vkb::FlagCommand blocksize_flag{vkb::FlagType::OneValue, "blocksize", "", "Block size edge length"};
+	vkb::FlagCommand gradient_test_flag{vkb::FlagType::FlagOnly, "gradient_test", "", "Gradient test"};
+	//vkb::FlagCommand datasets_flag{vkb::FlagType::ManyValues, "datasets", "D", "Dataset filesnames"};
+	vkb::PositionalCommand dataset_flag{"dataset", "Dataset filename"};
+
+	vkb::CommandGroup cmd{"Volume Render Options", {&imin_flag, &imax_flag, &gmin_flag, &gmax_flag, &skipmode_flag, &blocksize_flag, &gradient_test_flag, &dataset_flag}};
+
+	float                             imin, imax, gmin, gmax;
+	VolumeRenderSubpass::SkippingType skipmode;
+	int                               blocksize;
+	bool                              gradient_test;
+	std::vector<std::string>          datasets;
+};
+
 class VolumeRender : public vkb::VulkanSample
 {
   public:
@@ -58,7 +94,6 @@ class VolumeRender : public vkb::VulkanSample
 	std::unique_ptr<ComputeOccupiedVoxelCount> compute_occupied_voxel_count;
 
 	// Options
-	int                          block_size;
 	VolumeRenderSubpass::Options volume_render_options;
 	bool                         render_sponza_scene;
 	bool                         spin_volumes;

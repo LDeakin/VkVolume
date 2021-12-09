@@ -53,7 +53,11 @@ VolumeRenderSubpass::VolumeRenderSubpass(RenderContext &render_context, sg::Scen
     volumes{scene.get_components<Volume>()},
     options(options)
 {
-	shader_variant.add_define("PRECOMPUTED_GRADIENT");
+	// FIXME: use_precomputed_gradients is set per volume... but should be a global option
+	if (volumes.front()->options.use_precomputed_gradient)
+	{
+		shader_variant.add_define("PRECOMPUTED_GRADIENT");
+	}
 	if (options.skipping_type == SkippingType::AnisotropicDistance)
 	{
 		shader_variant.add_define("ANISOTROPIC_DISTANCE");
@@ -262,7 +266,10 @@ void VolumeRenderSubpass::draw(CommandBuffer &command_buffer)
 		command_buffer.bind_buffer(allocation_transfer_function.get_buffer(), allocation_transfer_function.get_offset(), allocation_transfer_function.get_size(), 0, 3, 0);
 		command_buffer.bind_image(*volume->get_transfer_function().image_view, *volume->get_transfer_function().sampler, 0, 4, 0);
 		command_buffer.bind_image(*volume->get_volume().image_view, *volume->get_volume().sampler, 0, 5, 0);
-		command_buffer.bind_image(*volume->get_gradient().image_view, *volume->get_gradient().sampler, 0, 6, 0);
+		if (volume->options.use_precomputed_gradient)
+		{
+			command_buffer.bind_image(*volume->get_gradient().image_view, *volume->get_gradient().sampler, 0, 6, 0);
+		}
 		if (options.skipping_type == SkippingType::AnisotropicDistance)
 		{
 			for (int i = 0; i < 8; ++i)
