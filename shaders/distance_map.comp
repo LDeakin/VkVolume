@@ -31,7 +31,7 @@ layout(push_constant, std430) uniform PushConsts {
 //      * runs on a GPU, uses a 3D swap image rather than a 1D buffer
 //      * compute Chebyshev distance rather than Euclidean distance
 //      * specific optimisations related to Chebyshev/GPU and sample reduction
-//      * expects occupied regions to have value 255 in occupancy map
+//      * expects empty regions to have value 255 and occupied 0 in occupancy map
 
 // call as:
 //  pushConsts(0)
